@@ -214,13 +214,6 @@
             z-index: 10;
         }
 
-        /* Sync badge */
-        .sync-badge { position: fixed; top: 15px; left: 15px; z-index: 300; padding: 6px 12px; border-radius: 6px; font-size: 0.7rem; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; font-family: 'Inter', sans-serif; }
-        .sync-badge.presenter { background: var(--accent); color: white; }
-        .sync-badge.viewer { background: var(--highlight); color: white; }
-        .sync-badge .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 6px; animation: pulse-dot 1.5s infinite; }
-        .sync-badge .dot { background: #fff; }
-        @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
         /* Card zoom overlay */
         .card-zoom-overlay {
@@ -292,13 +285,9 @@
             body.presenting .hero, body.presenting .closing { align-items: center; padding-top: 0; }
         }
     </style>
-    <!-- Firebase SDK -->
-    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 </head>
 <body>
 
-<div class="sync-badge" id="syncBadge" style="display:none;"><span class="dot"></span><span id="syncLabel"></span></div>
 <div class="card-zoom-overlay" id="cardZoom"><div class="card-zoom-content" id="cardZoomContent"></div><div class="card-zoom-hint">Tap to close</div></div>
 <nav class="nav-dots" id="navDots"></nav>
 <div class="key-hint" id="keyHint">Scroll or use arrow keys</div>
@@ -721,7 +710,7 @@
             return;
         }
         if (presenting) {
-            if (e.key === 'Escape') { if (isSync && syncRole !== 'presenter') return; exitPresentation(); return; }
+            if (e.key === 'Escape') { exitPresentation(); return; }
             if (e.key === 'ArrowDown' || e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') {
                 e.preventDefault();
                 goToSlide(currentSlide + 1);
@@ -742,7 +731,7 @@
     });
 
     document.getElementById('exitHint').addEventListener('click', () => {
-        if (presenting && !(isSync && syncRole !== 'presenter')) exitPresentation();
+        if (presenting) exitPresentation();
     });
 
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || window.innerWidth < 768;
@@ -764,115 +753,11 @@
     });
 
     document.addEventListener('fullscreenchange', () => {
-        if (!document.fullscreenElement && presenting && !(isSync && syncRole !== 'presenter')) exitPresentation();
+        if (!document.fullscreenElement && presenting) exitPresentation();
     });
     document.addEventListener('webkitfullscreenchange', () => {
-        if (!document.webkitFullscreenElement && presenting && !(isSync && syncRole !== 'presenter')) exitPresentation();
+        if (!document.webkitFullscreenElement && presenting) exitPresentation();
     });
-
-    // ===== FIREBASE REAL-TIME SYNC =====
-    const firebaseConfig = {
-        apiKey: "AIzaSyBu2ufFhke40iLBx9eQUqSfjcPXy6KFol4",
-        authDomain: "ut-presentation.firebaseapp.com",
-        databaseURL: "https://ut-presentation-default-rtdb.firebaseio.com",
-        projectId: "ut-presentation",
-        storageBucket: "ut-presentation.firebasestorage.app",
-        messagingSenderId: "806141884568",
-        appId: "1:806141884568:web:06724f20b3ea72608cb8ed"
-    };
-
-    const params = new URLSearchParams(window.location.search);
-    const syncRole = params.get('role');
-    const isSync = true;
-
-    if (isSync) {
-        try {
-            let fbApp;
-            try { fbApp = firebase.app(); } catch(e) { fbApp = firebase.initializeApp(firebaseConfig); }
-            const db = firebase.database();
-            const slideRef = db.ref('presentation/currentSlide');
-            const syncBadge = document.getElementById('syncBadge');
-            const syncLabel = document.getElementById('syncLabel');
-
-            if (syncRole === 'presenter') {
-                syncBadge.style.display = 'block';
-                syncBadge.classList.add('presenter');
-                syncLabel.textContent = 'Presenter';
-                window.scrollTo(0, 0);
-
-                const originalGoToSlide = goToSlide;
-                goToSlide = function(n) {
-                    originalGoToSlide(n);
-                    slideRef.set({ slide: currentSlide, timestamp: Date.now() });
-                };
-                slideRef.set({ slide: 0, timestamp: Date.now() });
-
-                setTimeout(() => {
-                    onSectionChange = function(sectionIndex) {
-                        if (!presenting) {
-                            slideRef.set({ slide: sectionIndex, timestamp: Date.now() });
-                        }
-                    };
-                }, 1000);
-
-            } else {
-                syncBadge.style.display = 'block';
-                syncBadge.classList.add('viewer');
-                syncLabel.textContent = 'Connecting...';
-                document.getElementById('presentBtn').style.display = 'none';
-                document.getElementById('keyHint').style.display = 'none';
-                document.getElementById('exitHint').style.setProperty('display', 'none', 'important');
-
-                let latestSlide = 0;
-
-                function enterViewerMode() {
-                    window.scrollTo(0, 0);
-                    sectionObserver.disconnect();
-                    scrollObserver2.disconnect();
-                    presenting = true;
-                    document.body.classList.add('presenting');
-                    document.documentElement.style.scrollSnapType = 'none';
-                    document.documentElement.style.overflow = 'hidden';
-                    document.body.style.overflow = 'hidden';
-                    allSlides.forEach(s => s.classList.remove('slide-active'));
-                    if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || window.innerWidth < 768) {
-                        document.getElementById('mobileNav').style.display = 'block';
-                        document.getElementById('exitHint').textContent = 'Tap to exit';
-                    }
-                    setTimeout(() => goToSlide(latestSlide), 50);
-                }
-
-                slideRef.on('value', (snapshot) => {
-                    const data = snapshot.val();
-                    if (data && typeof data.slide === 'number') {
-                        latestSlide = data.slide;
-                        if (presenting) goToSlide(data.slide);
-                        syncLabel.textContent = 'Slide ' + (data.slide + 1) + ' - Following';
-                    }
-                });
-
-                setTimeout(enterViewerMode, 300);
-
-                document.addEventListener('visibilitychange', () => {
-                    if (document.visibilityState === 'visible') {
-                        syncLabel.textContent = 'Reconnecting...';
-                        firebase.database().goOffline();
-                        firebase.database().goOnline();
-                        if (!presenting) setTimeout(enterViewerMode, 200);
-                    }
-                });
-
-                window.addEventListener('focus', () => {
-                    if (isSync && syncRole !== 'presenter') {
-                        firebase.database().goOffline();
-                        firebase.database().goOnline();
-                    }
-                });
-            }
-        } catch(e) {
-            console.error('Firebase sync error:', e);
-        }
-    }
 
     // ===== TAP-TO-ZOOM CARDS =====
     const zoomOverlay = document.getElementById('cardZoom');
@@ -909,39 +794,12 @@
         card.addEventListener('click', (e) => {
             e.stopPropagation();
             zoomCard(card);
-            if (isSync && syncRole === 'presenter') {
-                try {
-                    firebase.database().ref('presentation/zoomedCard').set({
-                        cardIndex: parseInt(card.dataset.cardIndex),
-                        timestamp: Date.now()
-                    });
-                } catch(e) {}
-            }
         });
     });
 
     zoomOverlay.addEventListener('click', () => {
         closeZoom();
-        if (isSync && syncRole === 'presenter') {
-            try {
-                firebase.database().ref('presentation/zoomedCard').set(null);
-            } catch(e) {}
-        }
     });
-
-    if (isSync && syncRole !== 'presenter') {
-        try {
-            firebase.database().ref('presentation/zoomedCard').on('value', (snapshot) => {
-                const data = snapshot.val();
-                if (data && typeof data.cardIndex === 'number') {
-                    const card = allCards[data.cardIndex];
-                    if (card) zoomCard(card);
-                } else {
-                    closeZoom();
-                }
-            });
-        } catch(e) {}
-    }
 </script>
 </body>
 </html>
